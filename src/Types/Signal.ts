@@ -1,5 +1,4 @@
 import { proto } from '../../WAProto'
-import { JidWithDevice } from '../WABinary'
 
 type DecryptGroupSignalOpts = {
 	group: string
@@ -8,7 +7,7 @@ type DecryptGroupSignalOpts = {
 }
 
 type ProcessSenderKeyDistributionMessageOpts = {
-	item: proto.Message.ISenderKeyDistributionMessage
+	item: proto.ISenderKeyDistributionMessage
 	authorJid: string
 }
 

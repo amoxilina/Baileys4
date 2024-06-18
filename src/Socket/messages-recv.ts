@@ -261,7 +261,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		case 'not_ephemeral':
 			msg.message = {
 				protocolMessage: {
-					type: proto.Message.ProtocolMessage.Type.EPHEMERAL_SETTING,
+					type: proto.ProtocolMessage.Type.EPHEMERAL_SETTING,
 					ephemeralExpiration: +(child.attrs.expiration || 0)
 				}
 			}
@@ -679,7 +679,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			logger,
 		)
 
-		if(msg.message?.protocolMessage?.type === proto.Message.ProtocolMessage.Type.SHARE_PHONE_NUMBER) {
+		if(msg.message?.protocolMessage?.type === proto.ProtocolMessage.Type.SHARE_PHONE_NUMBER) {
 			if(node.attrs.sender_pn) {
 				ev.emit('chats.phoneNumberShare', { lid: node.attrs.from, jid: node.attrs.sender_pn })
 			}

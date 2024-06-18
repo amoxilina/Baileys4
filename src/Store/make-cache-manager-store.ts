@@ -67,10 +67,10 @@ const makeCacheManagerAuthState = async(store: Store, sessionKey: string) => {
 					const data = {}
 					await Promise.all(
 						ids.map(async(id) => {
-							let value: proto.Message.AppStateSyncKeyData | AuthenticationCreds | null =
+							let value: proto.AppStateSyncKeyData | AuthenticationCreds | null =
                                 await readData(`${type}-${id}`)
 							if(type === 'app-state-sync-key' && value) {
-								value = proto.Message.AppStateSyncKeyData.fromObject(value)
+								value = proto.AppStateSyncKeyData.fromObject(value)
 							}
 
 							data[id] = value

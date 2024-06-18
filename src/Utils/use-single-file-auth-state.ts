@@ -59,7 +59,7 @@ export const useSingleFileAuthState = (filename: string, logger?: Logger): { sta
 							let value = keys[key]?.[id]
 							if(value) {
 								if(type === 'app-state-sync-key') {
-									value = proto.Message.AppStateSyncKeyData.fromObject(value)
+									value = proto.AppStateSyncKeyData.fromObject(value)
 								}
 
 								dict[id] = value
