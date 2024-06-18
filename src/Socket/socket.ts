@@ -34,7 +34,6 @@ import {
 	printQRIfNecessaryListener,
 	promiseTimeout
 } from '../Utils'
-import { removeBuffer } from '../Utils/utils'
 import {
 	assertNodeErrorFree,
 	BinaryNode,
@@ -46,7 +45,6 @@ import {
 	S_WHATSAPP_NET
 } from '../WABinary'
 import { MobileSocketClient, WebSocketClient } from './Client'
-
 
 /**
  * Connects to WA servers and performs:
@@ -78,6 +76,10 @@ export const makeSocket = (config: SocketConfig) => {
 		url = new URL(`tcp://${MOBILE_ENDPOINT}:${MOBILE_PORT}`)
 	}
 
+	if(!config.mobile && url.protocol === 'wss' && authState?.creds?.routingInfo) {
+		url.searchParams.append('ED', authState.creds.routingInfo.toString('base64url'))
+	}
+
 	const ws = config.socket ? config.socket : config.mobile ? new MobileSocketClient(url, config) : new WebSocketClient(url, config)
 
 	ws.connect()
@@ -90,14 +92,14 @@ export const makeSocket = (config: SocketConfig) => {
 		keyPair: ephemeralKeyPair,
 		NOISE_HEADER: config.mobile ? MOBILE_NOISE_HEADER : NOISE_WA_HEADER,
 		mobile: config.mobile,
-		logger
+		logger,
+		routingInfo: authState?.creds?.routingInfo
 	})
 
 	const { creds } = authState
 	// add transaction capability
 	const keys = addTransactionCapability(authState.keys, logger, transactionOpts)
 	const signalRepository = makeSignalRepository({ creds, keys })
-
 
 	let lastDateRecv: Date
 	let epoch = 1
@@ -115,7 +117,6 @@ export const makeSocket = (config: SocketConfig) => {
 			throw new Boom('Connection Closed', { statusCode: DisconnectReason.connectionClosed })
 		}
 
-		logger.debug({ data_length: data.length }, 'encode frame')
 		const bytes = noise.encodeFrame(data)
 		await promiseTimeout<void>(
 			connectTimeoutMs,
@@ -130,28 +131,10 @@ export const makeSocket = (config: SocketConfig) => {
 		)
 	}
 
-	const ignoreIds: string[] = []
-
-	function shouldIgnoreFrameLog(frame: BinaryNode) {
-		if(frame.tag === 'iq' && frame.attrs.xmlns === 'w:p') {
-			return true
-		}
-
-		if(ignoreIds.includes(frame.attrs.id)) {
-			return true
-		}
-
-		return false
-	}
-
 	/** send a binary node */
 	const sendNode = (frame: BinaryNode) => {
-		if(logger.level === 'trace' && !shouldIgnoreFrameLog(frame)) {
-			const frameParsed = removeBuffer(frame)
-
-			logger.trace({ msgId: frame.attrs.id, fromMe: true, frame: frameParsed }, 'communication')
-		} else if(frame.attrs.id) {
-			ignoreIds.push(frame.attrs.id)
+		if(logger.level === 'trace') {
+			logger.trace({ xml: binaryNodeToString(frame), msg: 'xml send' })
 		}
 
 		const buff = encodeBinaryNode(frame)
@@ -328,7 +311,7 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const onMessageRecieved = (data: Buffer) => {
+	const onMessageReceived = (data: Buffer) => {
 		noise.decodeFrame(data, frame => {
 			// reset ping timeout
 			lastDateRecv = new Date()
@@ -340,11 +323,8 @@ export const makeSocket = (config: SocketConfig) => {
 			if(!(frame instanceof Uint8Array)) {
 				const msgId = frame.attrs.id
 
-				if(logger.level === 'trace' && !shouldIgnoreFrameLog(frame)) {
-					const frameParsed = removeBuffer(frame)
-
-
-					logger.trace({ msgId, fromMe: false, frame: frameParsed }, 'communication')
+				if(logger.level === 'trace') {
+					logger.trace({ xml: binaryNodeToString(frame), msg: 'recv xml' })
 				}
 
 				/* Check if this is a response to a message we sent */
@@ -384,7 +364,6 @@ export const makeSocket = (config: SocketConfig) => {
 		clearInterval(keepAliveReq)
 		clearTimeout(qrTimer)
 
-
 		ws.removeAllListeners('close')
 		ws.removeAllListeners('error')
 		ws.removeAllListeners('open')
@@ -393,9 +372,7 @@ export const makeSocket = (config: SocketConfig) => {
 		if(!ws.isClosed && !ws.isClosing) {
 			try {
 				ws.close()
-			} catch(wsError) {
-				logger.error({ wsError }, 'Error in close socker')
-			}
+			} catch{ }
 		}
 
 		ev.emit('connection.update', {
@@ -444,11 +421,10 @@ export const makeSocket = (config: SocketConfig) => {
 				check if it's been a suspicious amount of time since the server responded with our last seen
 				it could be that the network is down
 			*/
-			if(diff > keepAliveIntervalMs + 360000) {
+			if(diff > keepAliveIntervalMs + 5000) {
 				end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }))
 			} else if(ws.isOpen) {
 				// if its all good, send a keep alive request
-				logger.debug({ lastDateRecv, keepAliveIntervalMs }, 'ping server')
 				query(
 					{
 						tag: 'iq',
@@ -460,13 +436,10 @@ export const makeSocket = (config: SocketConfig) => {
 						},
 						content: [{ tag: 'ping', attrs: {} }]
 					}
-				).then((frame) => {
-					logger.debug({ frame, lastDateRecv }, 'pong server')
-					// redundant but apparently necessary line.
-					lastDateRecv = new Date()
-				}).catch(err => {
-					logger.error({ trace: err.stack }, 'error in sending keep alive')
-				})
+				)
+					.catch(err => {
+						logger.error({ trace: err.stack }, 'error in sending keep alive')
+					})
 			} else {
 				logger.warn('keep alive called when WS not open')
 			}
@@ -579,7 +552,26 @@ export const makeSocket = (config: SocketConfig) => {
 		return Buffer.concat([salt, randomIv, ciphered])
 	}
 
-	ws.on('message', onMessageRecieved)
+	const sendWAMBuffer = (wamBuffer: Buffer) => {
+		return query({
+			tag: 'iq',
+			attrs: {
+				to: S_WHATSAPP_NET,
+				id: generateMessageTag(),
+				xmlns: 'w:stats'
+			},
+			content: [
+				{
+					tag: 'add',
+					attrs: {},
+					content: wamBuffer
+				}
+			]
+		})
+	}
+
+	ws.on('message', onMessageReceived)
+
 	ws.on('open', async() => {
 		try {
 			await validateConnection()
@@ -711,14 +703,12 @@ export const makeSocket = (config: SocketConfig) => {
 		const offlineNotifs = +(child?.attrs.count || 0)
 
 		logger.info(`handled ${offlineNotifs} offline messages/notifications`)
-		ev.emit('connection.update', { offline_notifications: offlineNotifs })
-
 		if(didStartBuffer) {
 			ev.flush()
 			logger.trace('flushed events for initial buffer')
 		}
 
-		ev.emit('connection.update', { receivedPendingNotifications: true, offline_notifications: 0 })
+		ev.emit('connection.update', { receivedPendingNotifications: true })
 	})
 
 	// update credentials when required
@@ -766,6 +756,7 @@ export const makeSocket = (config: SocketConfig) => {
 		requestPairingCode,
 		/** Waits for the connection to WA to reach a state */
 		waitForConnectionUpdate: bindWaitForConnectionUpdate(ev),
+		sendWAMBuffer,
 	}
 }
 

@@ -47,10 +47,10 @@ export const WA_CERT_DETAILS = {
 }
 
 export const PROCESSABLE_HISTORY_TYPES = [
-	proto.HistorySyncNotification.HistorySyncType.INITIAL_BOOTSTRAP,
-	proto.HistorySyncNotification.HistorySyncType.PUSH_NAME,
-	proto.HistorySyncNotification.HistorySyncType.RECENT,
-	proto.HistorySyncNotification.HistorySyncType.FULL
+	proto.Message.HistorySyncNotification.HistorySyncType.INITIAL_BOOTSTRAP,
+	proto.Message.HistorySyncNotification.HistorySyncType.PUSH_NAME,
+	proto.Message.HistorySyncNotification.HistorySyncType.RECENT,
+	proto.Message.HistorySyncNotification.HistorySyncType.FULL
 ]
 
 export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
